@@ -49,7 +49,7 @@ outside serverless constraints.
 
 - Next.js 14 (App Router) — frontend + API routes
 - Prisma — ORM, SQLite locally / Postgres in production
-- OpenRouter — LLM calls, free-tier model by default, no paid key required
+-  Groq — LLM calls, free tier (no card required, rate-limited not billed)
 
 ## Run locally
 
@@ -87,8 +87,8 @@ before deploying:
 3. Push to GitHub, import the repo on [vercel.com](https://vercel.com).
 4. In Vercel's project settings → Environment Variables, add:
    - `DATABASE_URL` — your Postgres connection string
-   - `OPENROUTER_API_KEY` — your free OpenRouter key
-   - `OPENROUTER_MODEL` — e.g. `meta-llama/llama-3.1-8b-instruct:free`
+   - `GROQ_API_KEY` — your free Groq key from https://console.groq.com/keys
+   - `GROQ_MODEL` — e.g. `llama-3.3-70b-versatile`
 5. Deploy. Vercel runs `prisma generate` automatically via the
    `postinstall` script; run `npx prisma db push` once locally against
    the production `DATABASE_URL` to create the tables.
