@@ -1,0 +1,40 @@
+// Local dev default: SQLite (zero setup, file-based).
+// For Vercel deployment: switch provider to "postgresql" and set
+// DATABASE_URL to a free Neon/Supabase Postgres connection string.
+// (SQLite's file lives on ephemeral disk in serverless — it will NOT persist
+// between function invocations on Vercel, so production needs a real DB.)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+
+
+model Task {
+  id             String     @id @default(cuid())
+  input          String     // the task/request the agent was given
+  status         String   @default("PENDING_AGENT")
+
+  // agent's own assessment
+  proposedAction String?    // what the agent wants to do
+  reasoning      String?    // why it wants to do it
+  confidence     Float?     // 0.0 - 1.0
+
+  // outcome
+  result         String?
+  errorMessage   String?
+
+  // human decision
+  approvalNote   String?
+
+  // full audit trail, stored as JSON string of {ts, event, detail}[]
+  auditLog       String     @default("[]")
+
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
