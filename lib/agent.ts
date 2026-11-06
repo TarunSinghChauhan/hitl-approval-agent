@@ -50,7 +50,10 @@ export async function submitTask(input: string): Promise<Task> {
       },
     });
 
-    if (assessment.confidence >= CONFIDENCE_THRESHOLD) {
+    // An assessment with no concrete action is never auto-run, however confident it claims to be.
+    const hasAction = assessment.proposedAction.length > 0;
+
+    if (hasAction && assessment.confidence >= CONFIDENCE_THRESHOLD) {
       // High confidence: auto-execute, no human needed.
       task = await prisma.task.update({
         where: { id: task.id },
@@ -73,7 +76,9 @@ export async function submitTask(input: string): Promise<Task> {
         auditLog: appendAudit(
           task.auditLog,
           "paused_for_approval",
-          `confidence ${assessment.confidence.toFixed(2)} < threshold ${CONFIDENCE_THRESHOLD}`
+          hasAction
+            ? `confidence ${assessment.confidence.toFixed(2)} < threshold ${CONFIDENCE_THRESHOLD}`
+            : "agent proposed no concrete action"
         ),
       },
     });
