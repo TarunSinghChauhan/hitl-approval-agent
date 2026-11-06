@@ -50,6 +50,27 @@ export interface AgentAssessment {
   confidence: number; // 0.0 - 1.0
 }
 
+// Models sometimes report confidence as a percentage (60, "85%") or as text ("0.9").
+// Clamping 60 to 1.0 would turn a 60%-sure answer into a certain one and auto-run it,
+// so values above 1 are read as percentages up to 100, and anything unusable becomes
+// 0, which pauses the task for a human. When in doubt, ask.
+export function normalizeConfidence(value: unknown): number {
+  let n: number;
+  if (typeof value === "number") {
+    n = value;
+  } else if (typeof value === "string") {
+    const text = value.trim();
+    n = Number(text.replace(/%$/, ""));
+    if (text.endsWith("%")) n /= 100; // "85%" -> 0.85
+  } else {
+    return 0;
+  }
+  if (!Number.isFinite(n) || n < 0) return 0;
+  if (n <= 1) return n;
+  if (n <= 100) return n / 100;
+  return 0;
+}
+
 export async function assessTask(input: string): Promise<AgentAssessment> {
   const raw = await callGroq(
     [
@@ -73,11 +94,10 @@ Respond ONLY with a JSON object, no markdown, no preamble, in exactly this shape
 
   try {
     const parsed = JSON.parse(raw);
-    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence)));
     return {
       proposedAction: String(parsed.proposedAction ?? "").trim(),
       reasoning: String(parsed.reasoning ?? "").trim(),
-      confidence: Number.isFinite(confidence) ? confidence : 0,
+      confidence: normalizeConfidence(parsed.confidence),
     };
   } catch {
     throw new Error(`Agent returned unparseable assessment: ${raw.slice(0, 300)}`);
