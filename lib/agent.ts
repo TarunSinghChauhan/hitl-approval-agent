@@ -106,14 +106,20 @@ export async function approveTask(id: string, approvalNote?: string): Promise<Ta
     throw new Error(`Task is in status ${task.status}, not awaiting approval`);
   }
 
-  await prisma.task.update({
-    where: { id },
+  // Claim the task atomically: the status check above and this write are separate
+  // queries, so two approvals (a double click, two reviewers) can both pass the check.
+  // Only the request whose write still finds PENDING_APPROVAL may run the action.
+  const claimed = await prisma.task.updateMany({
+    where: { id, status: "PENDING_APPROVAL" },
     data: {
       status: "APPROVED",
       approvalNote: approvalNote || null,
       auditLog: appendAudit(task.auditLog, "human_approved", approvalNote),
     },
   });
+  if (claimed.count !== 1) {
+    throw new Error("Task is not awaiting approval: another request handled it first");
+  }
 
   return runExecution(id);
 }
@@ -128,14 +134,20 @@ export async function rejectTask(id: string, approvalNote?: string): Promise<Tas
     throw new Error(`Task is in status ${task.status}, not awaiting approval`);
   }
 
-  return prisma.task.update({
-    where: { id },
+  // Same atomic claim as approveTask, so a reject cannot overwrite an approval that won.
+  const claimed = await prisma.task.updateMany({
+    where: { id, status: "PENDING_APPROVAL" },
     data: {
       status: "REJECTED",
       approvalNote: approvalNote || null,
       auditLog: appendAudit(task.auditLog, "human_rejected", approvalNote),
     },
   });
+  if (claimed.count !== 1) {
+    throw new Error("Task is not awaiting approval: another request handled it first");
+  }
+
+  return prisma.task.findUniqueOrThrow({ where: { id } });
 }
 
 async function runExecution(id: string): Promise<Task> {
