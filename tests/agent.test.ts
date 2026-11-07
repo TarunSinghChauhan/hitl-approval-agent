@@ -18,6 +18,12 @@ const db = vi.hoisted(() => {
         rows.set(where.id, row);
         return { ...row };
       },
+      updateMany: async ({ where, data }: any) => {
+        const row = rows.get(where.id);
+        if (!row || (where.status !== undefined && row.status !== where.status)) return { count: 0 };
+        rows.set(where.id, { ...row, ...data });
+        return { count: 1 };
+      },
       findUniqueOrThrow: async ({ where }: any) => {
         if (!rows.has(where.id)) throw new Error("Task not found");
         return { ...rows.get(where.id) };
@@ -125,5 +131,55 @@ describe("approveTask / rejectTask", () => {
 
   it("an unknown id is an error", async () => {
     await expect(approveTask("missing")).rejects.toThrow(/not found/i);
+  });
+});
+
+describe("concurrent decisions on the same task", () => {
+  async function pending() {
+    assess.mockResolvedValue({ proposedAction: "Send the invoice", reasoning: "r", confidence: 0.4 });
+    return submitTask("send the invoice");
+  }
+
+  it("two simultaneous approvals run the action once", async () => {
+    const p = await pending();
+    const results = await Promise.allSettled([approveTask(p.id, "a"), approveTask(p.id, "b")]);
+
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const loser = results[1] as PromiseRejectedResult;
+    expect(loser.reason.message).toMatch(/not awaiting approval/);
+    expect(db.rows.get(p.id).status).toBe("COMPLETED");
+  });
+
+  it("an approval that lands first beats a simultaneous rejection", async () => {
+    const p = await pending();
+    const results = await Promise.allSettled([approveTask(p.id), rejectTask(p.id)]);
+
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(db.rows.get(p.id).status).toBe("COMPLETED"); // not overwritten by the rejection
+  });
+
+  it("a rejection that lands first beats a simultaneous approval, and nothing runs", async () => {
+    const p = await pending();
+    const results = await Promise.allSettled([rejectTask(p.id), approveTask(p.id)]);
+
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(db.rows.get(p.id).status).toBe("REJECTED");
+  });
+
+  it("a rejection that arrives earlier stops a later approval from executing", async () => {
+    const p = await pending();
+    await rejectTask(p.id, "no");
+    await expect(approveTask(p.id)).rejects.toThrow(/not awaiting approval/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("the audit log records exactly one human decision", async () => {
+    const p = await pending();
+    await Promise.allSettled([approveTask(p.id), approveTask(p.id), rejectTask(p.id)]);
+    const log = JSON.parse(db.rows.get(p.id).auditLog) as { event: string }[];
+    expect(log.filter((e) => e.event.startsWith("human_")).length).toBe(1);
   });
 });
